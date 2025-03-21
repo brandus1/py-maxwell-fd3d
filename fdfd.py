@@ -12,7 +12,7 @@ Dependencies: numpy, scipy, your pyfd3d code base (fd3d.py, pml.py, etc.)
 
 import numpy as np
 import scipy.sparse.linalg as spla
-
+import matplotlib.pyplot as plt
 # ---------------------------------------------------
 # 1) Example "materials" dictionary or JSON
 #    For each ID, we have: name, epsilon_r, sigma (S/m)
@@ -26,7 +26,7 @@ materials_dict = {
 }
 
 # ---------------------------------------------------
-# 2) A 3D integer array specifying each voxel’s material ID
+# 2) A 3D integer array specifying each voxel's material ID
 #    Example: shape (nx, ny, nz). We'll just make a toy domain
 # ---------------------------------------------------
 nx, ny, nz = 60, 40, 50
@@ -156,24 +156,44 @@ print("Matrix A shape =", A.shape, "  b shape =", b.shape)
 # ---------------------------------------------------
 residual_history = []
 
+# Create a new figure for residual plot
+plt.figure(figsize=(10, 6))
+ax = plt.gca()
+(line,) = ax.plot([], [], 'b-')
+
+ax.set_xlabel("Iteration")
+ax.set_ylabel("Residual Norm")
+ax.set_yscale("log")  # log scale for residual
+ax.set_title("BiCGSTAB Convergence (log scale)")
+
 def iteration_callback(xk):
     """
-    A simple callback that computes and stores the residual norm
-    at each iteration. xk is the current solution guess from the solver.
+    Called at each BiCGSTAB iteration, with xk = current solution guess.
+    We'll compute the residual norm, store it, and update the live plot.
     """
-    # Compute the residual r = b - A*xk
     r = b - A @ xk
     r_norm = np.linalg.norm(r)
     residual_history.append(r_norm)
-    iter_count = len(residual_history)
-    print(f"Iteration {iter_count}: residual = {r_norm:.3e}")
+    print(f"Iteration {len(residual_history)}: residual = {r_norm:.3e}")
+    # Update the line's data:
+    xdata = np.arange(1, len(residual_history) + 1)
+    line.set_xdata(xdata)
+    line.set_ydata(residual_history)
 
-# Optionally provide an initial guess x0 (the length must match b)
+    ax.relim()          # Recompute plot limits
+    ax.autoscale_view() # Autoscale axes
+    plt.draw()
+    plt.pause(0.01)     # Small pause so GUI updates
+
+# Optional initial guess
 x0 = np.zeros_like(b, dtype=complex)
 
-# Solve with BiCGSTAB or GMRES, etc.:
+# Solve using BiCGSTAB with rtol (and optionally atol).
 E_solution, info = spla.bicgstab(
-    A, b, x0=x0, atol=1e-8, maxiter=2000,
+    A, b,
+    x0=x0,
+    rtol=1e-8,
+    maxiter=2000,
     callback=iteration_callback
 )
 
@@ -182,6 +202,8 @@ if info == 0:
 else:
     print(f"BiCGSTAB ended with info={info}")
 
+# Close the residual plot figure
+plt.close()
 
 # E_solution is a length-3*N vector => the Ex,Ey,Ez fields in a single array
 # You can reshape them back to (nx,ny,nz):
@@ -192,9 +214,8 @@ Ez_sol = E_solution[2*nx*ny*nz :               ].reshape((nx,ny,nz), order='F')
 # ---------------------------------------------------
 # 8) Post-process or visualize the fields
 # ---------------------------------------------------
-# For example, view the magnitude of E in a central slice.
-import matplotlib.pyplot as plt
-
+# Create a new figure for field visualization
+plt.figure(figsize=(10, 6))
 midZ = nz//2
 plt.imshow(np.abs(Ez_sol[:,:,midZ].T), origin='lower', cmap='inferno')
 plt.colorbar(label='|Ez| at z-slice')
