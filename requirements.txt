@@ -1,2 +1,4 @@
 numpy<2.0.0
 scipy
+cupy-cuda11x>=12.0.0
+matplotlib
