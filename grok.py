@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 
 # Simulation Parameters
-N_x, N_y, N_z = 20, 20, 20  # Coarse grid sizes
+N_x, N_y, N_z = 40, 40, 40  # Coarse grid sizes
 h = 0.1                     # Coarse spatial step (meters)
 dt = 0.05                   # Coarse time step (seconds)
 c = 1.0                     # Speed of light
@@ -35,12 +35,62 @@ H_x_f = np.zeros((N_xf + 1, N_yf, N_zf))
 H_y_f = np.zeros((N_xf, N_yf + 1, N_zf))
 H_z_f = np.zeros((N_xf, N_yf, N_zf + 1))
 
+# PML Parameters for Coarse Grid
+Npml = 8  # PML thickness (small for demonstration; typically 8-10 for better absorption)
+m = 3     # Polynomial grading order
+eta = np.sqrt(mu0 / eps0)  # Impedance (1.0 in this normalized system)
+sigma_max = (0.8 * (m + 1)) / (eta * h)  # Maximum conductivity
+
+# Define sigma arrays
+sigma_x = np.zeros(N_x + 1)
+for i in range(Npml):
+    sigma_x[i] = sigma_max * ((Npml - i - 0.5) / Npml) ** m
+for i in range(N_x - Npml + 1, N_x + 1):
+    sigma_x[i] = sigma_max * ((i - (N_x - Npml) + 0.5) / Npml) ** m
+
+sigma_y = np.zeros(N_y + 1)
+for j in range(Npml):
+    sigma_y[j] = sigma_max * ((Npml - j - 0.5) / Npml) ** m
+for j in range(N_y - Npml + 1, N_y + 1):
+    sigma_y[j] = sigma_max * ((j - (N_y - Npml) + 0.5) / Npml) ** m
+
+sigma_z = np.zeros(N_z + 1)
+for k in range(Npml):
+    sigma_z[k] = sigma_max * ((Npml - k - 0.5) / Npml) ** m
+for k in range(N_z - Npml + 1, N_z + 1):
+    sigma_z[k] = sigma_max * ((k - (N_z - Npml) + 0.5) / Npml) ** m
+
+# CPML coefficients
+b_x = np.exp(-sigma_x * dt / eps0)
+a_x = b_x - 1  # Simplified for kappa=1, alpha=0
+b_y = np.exp(-sigma_y * dt / eps0)
+a_y = b_y - 1
+b_z = np.exp(-sigma_z * dt / eps0)
+a_z = b_z - 1
+
+# PML Psi Variables for Coarse Grid
+psi_E_x_y = np.zeros((N_x, N_y + 1, N_z + 1))
+psi_E_x_z = np.zeros((N_x, N_y + 1, N_z + 1))
+psi_E_y_x = np.zeros((N_x + 1, N_y, N_z + 1))
+psi_E_y_z = np.zeros((N_x + 1, N_y, N_z + 1))
+psi_E_z_x = np.zeros((N_x + 1, N_y + 1, N_z))
+psi_E_z_y = np.zeros((N_x + 1, N_y + 1, N_z))
+
+psi_H_x_y = np.zeros((N_x + 1, N_y, N_z))
+psi_H_x_z = np.zeros((N_x + 1, N_y, N_z))
+psi_H_y_x = np.zeros((N_x, N_y + 1, N_z))
+psi_H_y_z = np.zeros((N_x, N_y + 1, N_z))
+psi_H_z_x = np.zeros((N_x, N_y, N_z + 1))
+psi_H_z_y = np.zeros((N_x, N_y, N_z + 1))
+
 # Initial Condition: Gaussian pulse in coarse E_z
 i_center, j_center, k_center = N_x // 2, N_y // 2, N_z // 2
 E_z[i_center, j_center, k_center] = 1.0
 
-# Update Functions (same as yours, adapted for grid)
-def update_E_fields(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt):
+# Update Functions
+
+## Standard E-field Update (for fine grid and base coarse grid without PML)
+def update_E_fields_standard(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt):
     Nx, Ny, Nz = grid
     for i in range(Nx):
         for j in range(1, Ny):
@@ -61,38 +111,83 @@ def update_E_fields(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt):
                 dHx_dy = (H_x[i, j, k] - H_x[i, j - 1, k]) / h
                 E_z[i, j, k] += (dt / eps0) * (dHy_dx - dHx_dy)
 
-def update_H_fields(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt):
+## Standard H-field Update (without PEC terms, for both grids)
+def update_H_fields_standard(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt):
     Nx, Ny, Nz = grid
     for i in range(Nx + 1):
         for j in range(Ny):
             for k in range(Nz):
-                dEy_dz = (E_y[i, j, k + 1] - E_y[i, j, k]) / h if k < Nz - 1 else (0 - E_y[i, j, k]) / h
-                dEz_dy = (E_z[i, j + 1, k] - E_z[i, j, k]) / h if j < Ny - 1 else (0 - E_z[i, j, k]) / h
+                dEy_dz = (E_y[i, j, k + 1] - E_y[i, j, k]) / h
+                dEz_dy = (E_z[i, j + 1, k] - E_z[i, j, k]) / h
                 H_x[i, j, k] += (dt / mu0) * (dEy_dz - dEz_dy)
-                if k == 0: H_x[i, j, k] += dt * 1.0 * E_y[i, j, 0]
-                if k == Nz - 1: H_x[i, j, k] += dt * (-1.0) * E_y[i, j, Nz]
-                if j == 0: H_x[i, j, k] += dt * 1.0 * E_z[i, 0, k]
-                if j == Ny - 1: H_x[i, j, k] += dt * (-1.0) * E_z[i, Ny, k]
     for i in range(Nx):
         for j in range(Ny + 1):
             for k in range(Nz):
-                dEz_dx = (E_z[i + 1, j, k] - E_z[i, j, k]) / h if i < Nx - 1 else (0 - E_z[i, j, k]) / h
-                dEx_dz = (E_x[i, j, k + 1] - E_x[i, j, k]) / h if k < Nz - 1 else (0 - E_x[i, j, k]) / h
+                dEz_dx = (E_z[i + 1, j, k] - E_z[i, j, k]) / h
+                dEx_dz = (E_x[i, j, k + 1] - E_x[i, j, k]) / h
                 H_y[i, j, k] += (dt / mu0) * (dEz_dx - dEx_dz)
-                if i == 0: H_y[i, j, k] += dt * 1.0 * E_z[0, j, k]
-                if i == Nx - 1: H_y[i, j, k] += dt * (-1.0) * E_z[Nx, j, k]
-                if k == 0: H_y[i, j, k] += dt * 1.0 * E_x[i, j, 0]
-                if k == Nz - 1: H_y[i, j, k] += dt * (-1.0) * E_x[i, j, Nz]
     for i in range(Nx):
         for j in range(Ny):
             for k in range(Nz + 1):
-                dEx_dy = (E_x[i, j + 1, k] - E_x[i, j, k]) / h if j < Ny - 1 else (0 - E_x[i, j, k]) / h
-                dEy_dx = (E_y[i + 1, j, k] - E_y[i, j, k]) / h if i < Nx - 1 else (0 - E_y[i, j, k]) / h
+                dEx_dy = (E_x[i, j + 1, k] - E_x[i, j, k]) / h
+                dEy_dx = (E_y[i + 1, j, k] - E_y[i, j, k]) / h
                 H_z[i, j, k] += (dt / mu0) * (dEx_dy - dEy_dx)
-                if i == 0: H_z[i, j, k] += dt * 1.0 * E_y[0, j, k]
-                if i == Nx - 1: H_z[i, j, k] += dt * (-1.0) * E_y[Nx, j, k]
-                if j == 0: H_z[i, j, k] += dt * 1.0 * E_x[i, 0, k]
-                if j == Ny - 1: H_z[i, j, k] += dt * (-1.0) * E_x[i, Ny, k]
+
+## PML E-field Update (for coarse grid)
+def update_E_fields_PML(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt, psi_E_x_y, psi_E_x_z, psi_E_y_x, psi_E_y_z, psi_E_z_x, psi_E_z_y, b_x, b_y, b_z, a_x, a_y, a_z):
+    Nx, Ny, Nz = grid
+    for i in range(Nx):
+        for j in range(1, Ny):
+            for k in range(1, Nz):
+                dHz_dy = (H_z[i, j, k] - H_z[i, j - 1, k]) / h
+                dHy_dz = (H_y[i, j, k] - H_y[i, j, k - 1]) / h
+                psi_E_x_y[i, j, k] = b_y[j] * psi_E_x_y[i, j, k] + a_y[j] * dHz_dy
+                psi_E_x_z[i, j, k] = b_z[k] * psi_E_x_z[i, j, k] + a_z[k] * dHy_dz
+                E_x[i, j, k] += (dt / eps0) * (dHz_dy - dHy_dz + psi_E_x_y[i, j, k] - psi_E_x_z[i, j, k])
+    for i in range(1, Nx):
+        for j in range(Ny):
+            for k in range(1, Nz):
+                dHx_dz = (H_x[i, j, k] - H_x[i, j, k - 1]) / h
+                dHz_dx = (H_z[i, j, k] - H_z[i - 1, j, k]) / h
+                psi_E_y_z[i, j, k] = b_z[k] * psi_E_y_z[i, j, k] + a_z[k] * dHx_dz
+                psi_E_y_x[i, j, k] = b_x[i] * psi_E_y_x[i, j, k] + a_x[i] * dHz_dx
+                E_y[i, j, k] += (dt / eps0) * (dHx_dz - dHz_dx + psi_E_y_z[i, j, k] - psi_E_y_x[i, j, k])
+    for i in range(1, Nx):
+        for j in range(1, Ny):
+            for k in range(Nz):
+                dHy_dx = (H_y[i, j, k] - H_y[i - 1, j, k]) / h
+                dHx_dy = (H_x[i, j, k] - H_x[i, j - 1, k]) / h
+                psi_E_z_x[i, j, k] = b_x[i] * psi_E_z_x[i, j, k] + a_x[i] * dHy_dx
+                psi_E_z_y[i, j, k] = b_y[j] * psi_E_z_y[i, j, k] + a_y[j] * dHx_dy
+                E_z[i, j, k] += (dt / eps0) * (dHy_dx - dHx_dy + psi_E_z_x[i, j, k] - psi_E_z_y[i, j, k])
+
+## PML H-field Update (for coarse grid)
+def update_H_fields_PML(grid, E_x, E_y, E_z, H_x, H_y, H_z, h, dt, psi_H_x_y, psi_H_x_z, psi_H_y_x, psi_H_y_z, psi_H_z_x, psi_H_z_y, b_x, b_y, b_z, a_x, a_y, a_z):
+    Nx, Ny, Nz = grid
+    for i in range(Nx + 1):
+        for j in range(Ny):
+            for k in range(Nz):
+                dEy_dz = (E_y[i, j, k + 1] - E_y[i, j, k]) / h
+                dEz_dy = (E_z[i, j + 1, k] - E_z[i, j, k]) / h
+                psi_H_x_z[i, j, k] = b_z[k] * psi_H_x_z[i, j, k] + a_z[k] * dEy_dz
+                psi_H_x_y[i, j, k] = b_y[j] * psi_H_x_y[i, j, k] + a_y[j] * dEz_dy
+                H_x[i, j, k] += (dt / mu0) * (dEy_dz - dEz_dy + psi_H_x_z[i, j, k] - psi_H_x_y[i, j, k])
+    for i in range(Nx):
+        for j in range(Ny + 1):
+            for k in range(Nz):
+                dEz_dx = (E_z[i + 1, j, k] - E_z[i, j, k]) / h
+                dEx_dz = (E_x[i, j, k + 1] - E_x[i, j, k]) / h
+                psi_H_y_x[i, j, k] = b_x[i] * psi_H_y_x[i, j, k] + a_x[i] * dEz_dx
+                psi_H_y_z[i, j, k] = b_z[k] * psi_H_y_z[i, j, k] + a_z[k] * dEx_dz
+                H_y[i, j, k] += (dt / mu0) * (dEz_dx - dEx_dz + psi_H_y_x[i, j, k] - psi_H_y_z[i, j, k])
+    for i in range(Nx):
+        for j in range(Ny):
+            for k in range(Nz + 1):
+                dEx_dy = (E_x[i, j + 1, k] - E_x[i, j, k]) / h
+                dEy_dx = (E_y[i + 1, j, k] - E_y[i, j, k]) / h
+                psi_H_z_y[i, j, k] = b_y[j] * psi_H_z_y[i, j, k] + a_y[j] * dEx_dy
+                psi_H_z_x[i, j, k] = b_x[i] * psi_H_z_x[i, j, k] + a_x[i] * dEy_dx
+                H_z[i, j, k] += (dt / mu0) * (dEx_dy - dEy_dx + psi_H_z_y[i, j, k] - psi_H_z_x[i, j, k])
 
 # Interpolation Function (linear, coarse to fine)
 def interpolate_coarse_to_fine(coarse_field, start_idx, N_f, axis):
@@ -167,14 +262,18 @@ n_steps = 100
 E_z_history = []
 
 for n in range(n_steps):
-    # Update coarse grid
-    update_E_fields((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt)
-    update_H_fields((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt)
+    # Update coarse grid with PML
+    update_E_fields_PML((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt,
+                        psi_E_x_y, psi_E_x_z, psi_E_y_x, psi_E_y_z, psi_E_z_x, psi_E_z_y,
+                        b_x, b_y, b_z, a_x, a_y, a_z)
+    update_H_fields_PML((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt,
+                        psi_H_x_y, psi_H_x_z, psi_H_y_x, psi_H_y_z, psi_H_z_x, psi_H_z_y,
+                        b_x, b_y, b_z, a_x, a_y, a_z)
     
     # Update fine grid (two steps due to 2:1 time step ratio)
     for _ in range(2):
-        update_E_fields((N_xf, N_yf, N_zf), E_x_f, E_y_f, E_z_f, H_x_f, H_y_f, H_z_f, h_f, dt_f)
-        update_H_fields((N_xf, N_yf, N_zf), E_x_f, E_y_f, E_z_f, H_x_f, H_y_f, H_z_f, h_f, dt_f)
+        update_E_fields_standard((N_xf, N_yf, N_zf), E_x_f, E_y_f, E_z_f, H_x_f, H_y_f, H_z_f, h_f, dt_f)
+        update_H_fields_standard((N_xf, N_yf, N_zf), E_x_f, E_y_f, E_z_f, H_x_f, H_y_f, H_z_f, h_f, dt_f)
     
     # Interface coupling for all six faces
     update_interface()
