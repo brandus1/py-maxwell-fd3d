@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
+from tqdm import tqdm
 
 # Simulation Parameters
 N_x, N_y, N_z = 40, 40, 40  # Coarse grid sizes
@@ -261,7 +262,7 @@ def update_interface():
 n_steps = 100
 E_z_history = []
 
-for n in range(n_steps):
+for n in tqdm(range(n_steps), desc="Simulation Progress"):
     # Update coarse grid with PML
     update_E_fields_PML((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt,
                         psi_E_x_y, psi_E_x_z, psi_E_y_x, psi_E_y_z, psi_E_z_x, psi_E_z_y,
