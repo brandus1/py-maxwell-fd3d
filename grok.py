@@ -15,6 +15,9 @@ h_f = h / 2                 # Fine spatial step
 dt_f = dt / 2               # Fine time step
 N_xf, N_yf, N_zf = 10, 10, 10  # Fine grid sizes (covers x=0.5 to 1.0, etc.)
 x_f_start, y_f_start, z_f_start = 5, 5, 5  # Coarse indices where fine grid begins
+x_f_end = x_f_start + N_xf
+y_f_end = y_f_start + N_yf
+z_f_end = z_f_start + N_zf
 
 # Coarse Field Arrays
 E_x = np.zeros((N_x, N_y + 1, N_z + 1))
@@ -103,18 +106,61 @@ def interpolate_coarse_to_fine(coarse_field, start_idx, N_f, axis):
             fine_field[i] = coarse_field[coarse_i]
     return fine_field
 
-# Interface Update
+# Interface Update for All Six Faces
 def update_interface():
-    # Coarse to fine (e.g., E_z at x=0.5 boundary, i=5)
+    sigma = 1 / h  # Penalty parameter for SAT terms
+    
+    # Interpolate coarse to fine for all six faces
+    # Left (x=0.5)
     for j in range(N_yf + 1):
         for k in range(N_zf):
-            E_z_f[0, j, k] = interpolate_coarse_to_fine(E_z[5, j + y_f_start, :], z_f_start + k // 2, 1, 0)[0]
-    # Add SAT terms (simplified, penalty to enforce continuity)
-    sigma = 1 / h
+            E_z_f[0, j, k] = interpolate_coarse_to_fine(E_z[x_f_start, j + y_f_start, :], z_f_start + k // 2, 1, 0)[0]
+    # Right (x=1.0)
+    for j in range(N_yf + 1):
+        for k in range(N_zf):
+            E_z_f[N_xf, j, k] = interpolate_coarse_to_fine(E_z[x_f_end, j + y_f_start, :], z_f_start + k // 2, 1, 0)[0]
+    # Front (y=0.5)
+    for i in range(N_xf + 1):
+        for k in range(N_zf):
+            E_z_f[i, 0, k] = interpolate_coarse_to_fine(E_z[i + x_f_start, y_f_start, :], z_f_start + k // 2, 1, 0)[0]
+    # Back (y=1.0)
+    for i in range(N_xf + 1):
+        for k in range(N_zf):
+            E_z_f[i, N_yf, k] = interpolate_coarse_to_fine(E_z[i + x_f_start, y_f_end, :], z_f_start + k // 2, 1, 0)[0]
+    # Bottom (z=0.5)
+    for i in range(N_xf + 1):
+        for j in range(N_yf + 1):
+            E_z_f[i, j, 0] = interpolate_coarse_to_fine(E_z[i + x_f_start, j + y_f_start, :], z_f_start, 1, 0)[0]
+    # Top (z=1.0)
+    for i in range(N_xf + 1):
+        for j in range(N_yf + 1):
+            E_z_f[i, j, N_zf-1] = interpolate_coarse_to_fine(E_z[i + x_f_start, j + y_f_start, :], z_f_end, 1, 0)[0]
+
+    # SAT terms for continuity at all interfaces
+    # Left (x=0.5)
     H_y[x_f_start, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] -= dt * sigma * (
-    E_z[x_f_start, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] - 
-    E_z_f[0, :N_yf, :]
-)
+        E_z[x_f_start, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] - E_z_f[0, :N_yf, :N_zf]
+    )
+    # Right (x=1.0)
+    H_y[x_f_end - 1, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] += dt * sigma * (
+        E_z[x_f_end, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] - E_z_f[N_xf, :N_yf, :N_zf]
+    )
+    # Front (y=0.5)
+    H_z[x_f_start:x_f_start + N_xf, y_f_start, z_f_start:z_f_start + N_zf] -= dt * sigma * (
+        E_x[x_f_start:x_f_start + N_xf, y_f_start, z_f_start:z_f_start + N_zf] - E_x_f[:N_xf, 0, :N_zf]
+    )
+    # Back (y=1.0)
+    H_z[x_f_start:x_f_start + N_xf, y_f_end - 1, z_f_start:z_f_start + N_zf] += dt * sigma * (
+        E_x[x_f_start:x_f_start + N_xf, y_f_end, z_f_start:z_f_start + N_zf] - E_x_f[:N_xf, N_yf, :N_zf]
+    )
+    # Bottom (z=0.5)
+    H_x[x_f_start:x_f_start + N_xf, y_f_start:y_f_start + N_yf, z_f_start] -= dt * sigma * (
+        E_y[x_f_start:x_f_start + N_xf, y_f_start:y_f_start + N_yf, z_f_start] - E_y_f[:N_xf, :N_yf, 0]
+    )
+    # Top (z=1.0)
+    H_x[x_f_start:x_f_start + N_xf, y_f_start:y_f_start + N_yf, z_f_end - 1] += dt * sigma * (
+        E_y[x_f_start:x_f_start + N_xf, y_f_start:y_f_start + N_yf, z_f_end] - E_y_f[:N_xf, :N_yf, N_zf-1]
+    )
 
 # Simulation Loop
 n_steps = 100
@@ -125,12 +171,12 @@ for n in range(n_steps):
     update_E_fields((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt)
     update_H_fields((N_x, N_y, N_z), E_x, E_y, E_z, H_x, H_y, H_z, h, dt)
     
-    # Update fine grid (two steps)
+    # Update fine grid (two steps due to 2:1 time step ratio)
     for _ in range(2):
         update_E_fields((N_xf, N_yf, N_zf), E_x_f, E_y_f, E_z_f, H_x_f, H_y_f, H_z_f, h_f, dt_f)
         update_H_fields((N_xf, N_yf, N_zf), E_x_f, E_y_f, E_z_f, H_x_f, H_y_f, H_z_f, h_f, dt_f)
     
-    # Interface coupling
+    # Interface coupling for all six faces
     update_interface()
     
     # Store for visualization
@@ -139,7 +185,7 @@ for n in range(n_steps):
 
 # Animation
 fig, ax = plt.subplots(figsize=(8, 6))
-im = ax.imshow(E_z_history[0], cmap='RdBu', vmin=-0.1, vmax=0.1, interpolation='bicubic', aspect='equal')
+im = ax.imshow(E_z_history[0], cmap='RdBu', vmin=-0.005, vmax=0.005, interpolation='bicubic', aspect='equal')
 ax.set_title(f'E_z Field Progression (x = {N_x//2})')
 ax.set_xlabel('y')
 ax.set_ylabel('z')
