@@ -111,7 +111,10 @@ def update_interface():
             E_z_f[0, j, k] = interpolate_coarse_to_fine(E_z[5, j + y_f_start, :], z_f_start + k // 2, 1, 0)[0]
     # Add SAT terms (simplified, penalty to enforce continuity)
     sigma = 1 / h
-    H_y[x_f_start, y_f_start:y_f_start + N_yf + 1, z_f_start:z_f_start + N_zf] -= dt * sigma * (E_z[x_f_start, y_f_start:y_f_start + N_yf + 1, z_f_start:z_f_start + N_zf] - E_z_f[0, :, :])
+    H_y[x_f_start, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] -= dt * sigma * (
+    E_z[x_f_start, y_f_start:y_f_start + N_yf, z_f_start:z_f_start + N_zf] - 
+    E_z_f[0, :N_yf, :]
+)
 
 # Simulation Loop
 n_steps = 100
