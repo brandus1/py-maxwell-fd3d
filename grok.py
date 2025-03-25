@@ -7,7 +7,7 @@ from numba import jit
 # Simulation Parameters (unchanged)
 N_x, N_y, N_z = 40, 40, 40
 h = 0.1
-dt = 0.05
+dt = 0.005
 c = 1.0
 eps0 = 1.0
 mu0 = 1.0
@@ -217,7 +217,7 @@ def interpolate_coarse_to_fine(coarse_field, start_idx, N_f, axis):
 
 # Interface Update for All Six Faces
 def update_interface():
-    sigma = 1 / h  # Penalty parameter for SAT terms
+    sigma = 1 / (16 * h)  # Penalty parameter for SAT terms
     
     # Interpolate coarse to fine for all six faces
     # Left (x=0.5)
@@ -272,7 +272,7 @@ def update_interface():
     )
 
 # Simulation Loop
-n_steps = 5000
+n_steps = 100000
 E_z_history = []
 
 for n in tqdm(range(n_steps), desc="Simulation Progress"):
@@ -297,17 +297,32 @@ for n in tqdm(range(n_steps), desc="Simulation Progress"):
     E_z_history.append(E_z_slice[:-1, :])
 
 # Animation
-fig, ax = plt.subplots(figsize=(8, 6))
-im = ax.imshow(E_z_history[0], cmap='RdBu', vmin=-0.005, vmax=0.005, interpolation='bicubic', aspect='equal')
-ax.set_title(f'E_z Field Progression (x = {N_x//2})')
-ax.set_xlabel('y')
-ax.set_ylabel('z')
-fig.colorbar(im, label='E_z (V/m)')
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+# Animated plot
+im = ax1.imshow(E_z_history[0], cmap='RdBu', vmin=-0.005, vmax=0.005, interpolation='bicubic', aspect='equal')
+ax1.set_title('Ez Field Evolution')
+ax1.set_xlabel('y')
+ax1.set_ylabel('z')
+fig.colorbar(im, ax=ax1, label='E_z (V/m)')
+
+# Final state plot
+im2 = ax2.imshow(E_z_history[-1], cmap='RdBu', vmin=-0.005, vmax=0.005, interpolation='bicubic', aspect='equal')
+ax2.set_title('Ez Field Final State')
+ax2.set_xlabel('y')
+ax2.set_ylabel('z')
+fig.colorbar(im2, ax=ax2, label='E_z (V/m)')
+
+# Add text annotation for step counter
+time_text = ax1.text(0.02, 0.95, 'Step: 0', transform=ax1.transAxes)
 
 def animate(n):
     im.set_array(E_z_history[n])
-    ax.set_title(f'E_z Field Progression (x = {N_x//2}), Step {n}')
-    return [im]
+    time_text.set_text(f'Step: {n}')
+    return [im, time_text]
 
-anim = animation.FuncAnimation(fig, animate, frames=n_steps, interval=100, blit=True)
+# Calculate interval to make animation last 30 seconds
+interval = 30000 / n_steps  # 30000 ms = 30 seconds
+
+anim = animation.FuncAnimation(fig, animate, frames=n_steps, interval=interval, blit=True)
 plt.show()
