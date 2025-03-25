@@ -272,7 +272,7 @@ def update_interface():
     )
 
 # Simulation Loop
-n_steps = 100000
+n_steps = 10000
 E_z_history = []
 
 for n in tqdm(range(n_steps), desc="Simulation Progress"):
@@ -322,7 +322,5 @@ def animate(n):
     return [im, time_text]
 
 # Calculate interval to make animation last 30 seconds
-interval = 30000 / n_steps  # 30000 ms = 30 seconds
-
-anim = animation.FuncAnimation(fig, animate, frames=n_steps, interval=interval, blit=True)
+anim = animation.FuncAnimation(fig, animate, frames=n_steps, interval=0, blit=True)
 plt.show()
