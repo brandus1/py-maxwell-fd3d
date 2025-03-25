@@ -5,7 +5,7 @@ from tqdm import tqdm
 from numba import jit
 
 # Simulation Parameters (unchanged)
-N_x, N_y, N_z = 40, 40, 40
+N_x, N_y, N_z = 50, 50, 50
 h = 0.1
 dt = 0.005
 c = 1.0
@@ -24,7 +24,7 @@ else:
 h_f = h / 2                 # Fine spatial step
 dt_f = dt / 2               # Fine time step
 N_xf, N_yf, N_zf = 10, 10, 10  # Fine grid sizes (covers x=0.5 to 1.0, etc.)
-x_f_start, y_f_start, z_f_start = 5, 5, 5  # Coarse indices where fine grid begins
+x_f_start, y_f_start, z_f_start = 20, 20, 20  # Coarse indices where fine grid begins
 x_f_end = x_f_start + N_xf
 y_f_end = y_f_start + N_yf
 z_f_end = z_f_start + N_zf
@@ -46,7 +46,7 @@ H_y_f = np.zeros((N_xf, N_yf + 1, N_zf))
 H_z_f = np.zeros((N_xf, N_yf, N_zf + 1))
 
 # PML Parameters for Coarse Grid
-Npml = 8  # PML thickness (small for demonstration; typically 8-10 for better absorption)
+Npml = 10  # PML thickness (small for demonstration; typically 8-10 for better absorption)
 m = 3     # Polynomial grading order
 eta = np.sqrt(mu0 / eps0)  # Impedance (1.0 in this normalized system)
 sigma_max = (0.8 * (m + 1)) / (eta * h)  # Maximum conductivity
@@ -92,10 +92,6 @@ psi_H_y_x = np.zeros((N_x, N_y + 1, N_z))
 psi_H_y_z = np.zeros((N_x, N_y + 1, N_z))
 psi_H_z_x = np.zeros((N_x, N_y, N_z + 1))
 psi_H_z_y = np.zeros((N_x, N_y, N_z + 1))
-
-# Initial Condition: Gaussian pulse in coarse E_z
-i_center, j_center, k_center = N_x // 2, N_y // 2, N_z // 2
-E_z[i_center, j_center, k_center] = 1.0
 
 # Update Functions
 
@@ -270,12 +266,23 @@ def update_interface():
     H_x[x_f_start:x_f_start + N_xf, y_f_start:y_f_start + N_yf, z_f_end - 1] += dt * sigma * (
         E_y[x_f_start:x_f_start + N_xf, y_f_start:y_f_start + N_yf, z_f_end] - E_y_f[:N_xf, :N_yf, N_zf-1]
     )
+#source
+i_src, j_src, k_src = N_x // 2, N_y // 2, N_z // 2
+amplitude = .1  # Maximum amplitude of the pulse
+f = 1.0  # Frequency of the pulse
+
+# Initial Condition: Point source in coarse E_z
+# E_z[i_src, j_src, k_src] = 1.0
 
 # Simulation Loop
 n_steps = 10000
 E_z_history = []
 
 for n in tqdm(range(n_steps), desc="Simulation Progress"):
+    # Sinusoidal source
+    t = (n + 1) * dt
+    E_z[i_src, j_src, k_src] += amplitude * np.sin(2 * np.pi * f * t)
+    
     # Update coarse grid with PML
     update_E_fields_PML(E_x, E_y, E_z, H_x, H_y, H_z, h, dt,
                         psi_E_x_y, psi_E_x_z, psi_E_y_x, psi_E_y_z, psi_E_z_x, psi_E_z_y,
